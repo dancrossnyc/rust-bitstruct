@@ -1,0 +1,13 @@
+[package]
+name = "bitstruct_derive"
+version = "0.1.0"
+authors = ["Dan Cross <crossd@gmail.com>"]
+edition = "2018"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { version = "1", features = ["full", "extra-traits"] }
+quote = "1"
+proc-macro2 = "1"
