@@ -1,0 +1,8 @@
+[package]
+name = "bitstruct"
+version = "0.1.0"
+authors = ["Dan Cross <crossd@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+bitstruct_derive = { version = "0.1.0", path = "../bitstruct_derive" }
