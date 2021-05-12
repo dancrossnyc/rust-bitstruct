@@ -27,7 +27,7 @@ fn expand_bitstruct(input: BitStructInput) -> syn::Result<TokenStream> {
         .fields
         .iter()
         .map(|field| expand_field_methods(&input, field))
-        .collect::<Result<Vec<TokenStream>, syn::Error>>()?;
+        .collect::<syn::Result<Vec<TokenStream>>>()?;
     Ok(quote! {
         #(#attrs)*
         #vis struct #name(#raw_vis #raw);
