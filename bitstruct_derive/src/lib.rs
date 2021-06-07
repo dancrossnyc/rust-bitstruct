@@ -49,6 +49,50 @@ fn expand_field_methods(input: &BitStructInput, field: &FieldDef) -> syn::Result
         ));
     }
 
+    // Extract any bitstruct specific field attributes.
+    let bitstruct_field_attrs = field
+        .attrs
+        .iter()
+        .find_map(|attr| {
+            let bitstruct: syn::Path = syn::parse_quote! {bitstruct};
+            match attr.parse_meta().ok()? {
+                syn::Meta::List(meta_list) if meta_list.path == bitstruct => {
+                    Some(meta_list.nested)
+                }
+                _ => None,
+            }
+        })
+        .unwrap_or_default();
+
+    let getter_method = expand_field_getter(input, field);
+    let setter_methods = {
+        let omit_setter = bitstruct_field_attrs
+            .iter()
+            .any(|nested_meta| {
+                let omit_setter: syn::NestedMeta = syn::parse_quote! {omit_setter};
+                nested_meta == &omit_setter
+            });
+
+        if omit_setter {
+            quote! {}
+        } else {
+            expand_field_setter(input, field)
+        }
+    };
+
+    Ok(quote! {
+        #getter_method
+        #setter_methods
+    })
+}
+
+fn expand_field_getter(input: &BitStructInput, field: &FieldDef) -> TokenStream {
+    // Only pass through the non-bitstruct field attributes.
+    let pass_thru_attrs = field.attrs.iter().filter(|&attr| {
+        let bitstruct: syn::Path = syn::parse_quote! {bitstruct};
+        attr.path != bitstruct
+    });
+
     let target_ty = field.target.as_type();
     let mask = hexlit(input.raw, field.bits.get_mask());
     let start_bit = hexlit(input.raw, field.bits.0.start.into());
@@ -59,15 +103,51 @@ fn expand_field_methods(input: &BitStructInput, field: &FieldDef) -> syn::Result
         #mask_and_shift as #target_ty
     };
 
-    let field_attrs = &field.attrs;
     let field_vis = &field.vis;
     let field_name = &field.name;
-    Ok(quote! {
-        #(#field_attrs)*
+    quote! {
+        #(#pass_thru_attrs)*
         #field_vis const fn #field_name(&self) -> #target_ty {
             #cast
         }
-    })
+    }
+}
+
+fn expand_field_setter(input: &BitStructInput, field: &FieldDef) -> TokenStream {
+    // Only pass through the non-bitstruct field attributes.
+    let pass_thru_attrs = field
+        .attrs
+        .iter()
+        .filter(|&attr| {
+            let bitstruct: syn::Path = syn::parse_quote! {bitstruct};
+            attr.path != bitstruct
+        })
+        .collect::<Vec<_>>();
+
+    let raw_ty = input.raw.as_type();
+    let target_ty = field.target.as_type();
+    let mask = field.bits.get_mask();
+    let neg_mask = hexlit(input.raw, !mask);
+    let mask = hexlit(input.raw, mask);
+    let start_bit = hexlit(input.raw, field.bits.0.start.into());
+
+    let field_vis = &field.vis;
+    let field_name = &field.name;
+    let with_method = quote::format_ident!("with_{}", field_name);
+    let set_method = quote::format_ident!("set_{}", field_name);
+    quote! {
+        #[must_use]
+        #(#pass_thru_attrs)*
+        #field_vis const fn #with_method(mut self, value: #target_ty) -> Self {
+            self.0 = (self.0 & #neg_mask) | (((value as #raw_ty) << #start_bit) & #mask);
+            self
+        }
+
+        #(#pass_thru_attrs)*
+        #field_vis fn #set_method(&mut self, value: #target_ty) {
+            self.0 = (self.0 & #neg_mask) | (((value as #raw_ty) << #start_bit) & #mask);
+        }
+    }
 }
 
 /// Helper methods on ParseStream that attempt to parse an item but only advance the cursor on success.
