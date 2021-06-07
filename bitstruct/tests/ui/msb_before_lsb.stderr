@@ -1,0 +1,5 @@
+error: least significant bit must be specified before most significant bit
+ --> $DIR/msb_before_lsb.rs:5:30
+  |
+5 |         field1: u8 = 19 .. 10;
+  |                              ^

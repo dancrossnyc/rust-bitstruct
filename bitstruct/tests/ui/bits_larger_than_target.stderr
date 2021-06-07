@@ -1,0 +1,5 @@
+error: target `u8` can only represent 8 bits; 9 specified
+ --> $DIR/bits_larger_than_target.rs:5:30
+  |
+5 |         field1: u8 = 10 .. 19;
+  |                              ^

@@ -1,4 +1,4 @@
-use std::{cmp::Ordering, convert::TryInto, ops::Range};
+use core::{cmp::Ordering, convert::TryInto, fmt, ops::Range};
 
 use proc_macro2::TokenStream;
 use quote::quote;
@@ -38,17 +38,6 @@ fn expand_bitstruct(input: BitStructInput) -> syn::Result<TokenStream> {
 }
 
 fn expand_field_methods(input: &BitStructInput, field: &FieldDef) -> syn::Result<TokenStream> {
-    if field.bits.bit_len() > field.target.bit_len() {
-        return Err(syn::Error::new(
-            field.name.span(),
-            format!(
-                "target type {:?} too small to represent {} bits",
-                field.target,
-                field.bits.bit_len()
-            ),
-        ));
-    }
-
     // Extract any bitstruct specific field attributes.
     let bitstruct_field_attrs = field
         .attrs
@@ -293,7 +282,7 @@ impl Parse for FieldDef {
         let bits: BitRange = input.parse()?;
         if target.bit_len() < bits.bit_len() {
             return Err(input.error(format!(
-                "target {:?} can only represent {} bits; {} specified",
+                "target `{}` can only represent {} bits; {} specified",
                 target,
                 target.bit_len(),
                 bits.bit_len(),
@@ -325,6 +314,14 @@ impl Target {
     fn as_type(&self) -> syn::Type {
         let Target::Int(raw) = self;
         raw.as_type()
+    }
+}
+
+impl fmt::Display for Target {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Target::Int(rawdef) => write!(f, "{}", rawdef.as_str()),
+        }
     }
 }
 

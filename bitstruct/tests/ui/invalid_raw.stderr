@@ -1,0 +1,5 @@
+error: unexpected end of input, `i32` is not supported; needs to be one of u8,u16,u32,u64,u128
+ --> $DIR/invalid_raw.rs:4:15
+  |
+4 |     struct Reg(i32) {
+  |               ^^^^^
