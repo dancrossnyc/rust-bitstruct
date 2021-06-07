@@ -1,0 +1,8 @@
+error[E0599]: no method named `with_field2` found for struct `Reg` in the current scope
+  --> $DIR/omit_setter.rs:15:10
+   |
+3  | bitstruct! {
+   | ---------- method `with_field2` not found for this
+...
+15 |         .with_field2(2); // fails because omit_setter was specified on field2
+   |          ^^^^^^^^^^^ help: there is an associated function with a similar name: `with_field1`

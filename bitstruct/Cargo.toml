@@ -6,3 +6,7 @@ edition = "2018"
 
 [dependencies]
 bitstruct_derive = { version = "0.1.0", path = "../bitstruct_derive" }
+
+[dev-dependencies]
+trybuild = "1.0.42"
+proptest = "1.0.0"
