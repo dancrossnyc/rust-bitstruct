@@ -45,9 +45,7 @@ fn expand_field_methods(input: &BitStructInput, field: &FieldDef) -> syn::Result
         .find_map(|attr| {
             let bitstruct: syn::Path = syn::parse_quote! {bitstruct};
             match attr.parse_meta().ok()? {
-                syn::Meta::List(meta_list) if meta_list.path == bitstruct => {
-                    Some(meta_list.nested)
-                }
+                syn::Meta::List(meta_list) if meta_list.path == bitstruct => Some(meta_list.nested),
                 _ => None,
             }
         })
@@ -55,12 +53,10 @@ fn expand_field_methods(input: &BitStructInput, field: &FieldDef) -> syn::Result
 
     let getter_method = expand_field_getter(input, field);
     let setter_methods = {
-        let omit_setter = bitstruct_field_attrs
-            .iter()
-            .any(|nested_meta| {
-                let omit_setter: syn::NestedMeta = syn::parse_quote! {omit_setter};
-                nested_meta == &omit_setter
-            });
+        let omit_setter = bitstruct_field_attrs.iter().any(|nested_meta| {
+            let omit_setter: syn::NestedMeta = syn::parse_quote! {omit_setter};
+            nested_meta == &omit_setter
+        });
 
         if omit_setter {
             quote! {}
@@ -88,9 +84,7 @@ fn expand_field_getter(input: &BitStructInput, field: &FieldDef) -> TokenStream 
     let mask_and_shift: syn::Expr = syn::parse_quote! {
         ((self.0 & #mask) >> #start_bit)
     };
-    let cast: syn::Expr = syn::parse_quote! {
-        #mask_and_shift as #target_ty
-    };
+    let cast = from_raw(mask_and_shift, &field.target);
 
     let field_vis = &field.vis;
     let field_name = &field.name;
@@ -98,6 +92,22 @@ fn expand_field_getter(input: &BitStructInput, field: &FieldDef) -> TokenStream 
         #(#pass_thru_attrs)*
         #field_vis const fn #field_name(&self) -> #target_ty {
             #cast
+        }
+    }
+}
+
+fn from_raw(raw_expr: syn::Expr, target: &Target) -> syn::Expr {
+    match target {
+        Target::Int(raw_def) => {
+            let target_ty = raw_def.as_type();
+            syn::parse_quote! {
+                #raw_expr as #target_ty
+            }
+        }
+        Target::Bool => {
+            syn::parse_quote! {
+                #raw_expr != 0
+            }
         }
     }
 }
@@ -113,7 +123,6 @@ fn expand_field_setter(input: &BitStructInput, field: &FieldDef) -> TokenStream 
         })
         .collect::<Vec<_>>();
 
-    let raw_ty = input.raw.as_type();
     let target_ty = field.target.as_type();
     let mask = field.bits.get_mask();
     let neg_mask = hexlit(input.raw, !mask);
@@ -124,17 +133,29 @@ fn expand_field_setter(input: &BitStructInput, field: &FieldDef) -> TokenStream 
     let field_name = &field.name;
     let with_method = quote::format_ident!("with_{}", field_name);
     let set_method = quote::format_ident!("set_{}", field_name);
+    let cast = into_raw(syn::parse_quote! {value}, &field.target, input.raw);
     quote! {
         #[must_use]
         #(#pass_thru_attrs)*
         #field_vis const fn #with_method(mut self, value: #target_ty) -> Self {
-            self.0 = (self.0 & #neg_mask) | (((value as #raw_ty) << #start_bit) & #mask);
+            self.0 = (self.0 & #neg_mask) | ((#cast << #start_bit) & #mask);
             self
         }
 
         #(#pass_thru_attrs)*
         #field_vis fn #set_method(&mut self, value: #target_ty) {
-            self.0 = (self.0 & #neg_mask) | (((value as #raw_ty) << #start_bit) & #mask);
+            self.0 = (self.0 & #neg_mask) | ((#cast << #start_bit) & #mask);
+        }
+    }
+}
+
+fn into_raw(target_expr: syn::Expr, target: &Target, raw: RawDef) -> syn::Expr {
+    let raw = raw.as_type();
+    match target {
+        Target::Int(_) | Target::Bool => {
+            syn::parse_quote! {
+                (#target_expr as #raw)
+            }
         }
     }
 }
@@ -302,18 +323,22 @@ impl Parse for FieldDef {
 enum Target {
     // Basic integer type: u8,u16,u32,u64,u128
     Int(RawDef),
+    Bool,
 }
 
 impl Target {
     fn bit_len(&self) -> u8 {
         match self {
             Target::Int(raw) => raw.bit_len(),
+            Target::Bool => 1,
         }
     }
 
     fn as_type(&self) -> syn::Type {
-        let Target::Int(raw) = self;
-        raw.as_type()
+        match self {
+            Target::Int(raw) => raw.as_type(),
+            Target::Bool => syn::parse_quote! {bool},
+        }
     }
 }
 
@@ -321,6 +346,7 @@ impl fmt::Display for Target {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Target::Int(rawdef) => write!(f, "{}", rawdef.as_str()),
+            Target::Bool => write!(f, "bool"),
         }
     }
 }
@@ -331,7 +357,10 @@ mod kw {
 
 impl Parse for Target {
     fn parse(input: ParseStream) -> syn::Result<Self> {
-        Ok(Target::Int(input.parse()?))
+        input
+            .try_parse::<RawDef>()
+            .map(|raw_def| Target::Int(raw_def))
+            .or_else(|_| input.try_parse::<kw::bool>().map(|_| Target::Bool))
     }
 }
 
@@ -417,11 +446,19 @@ mod tests {
     #[test]
     fn parse_field_def() {
         let field_def: FieldDef = syn::parse2(quote! {
-            pub field1: u8 = 3 .. 4
+            pub field1: u8 = 3 .. 5
         })
         .unwrap();
         assert_eq!(field_def.name, quote::format_ident!("field1"));
         assert_eq!(field_def.target, Target::Int(RawDef::U8));
+        assert_eq!(field_def.bits, BitRange(3..5));
+
+        let field_def: FieldDef = syn::parse2(quote! {
+            pub field1: bool = 3
+        })
+        .unwrap();
+        assert_eq!(field_def.name, quote::format_ident!("field1"));
+        assert_eq!(field_def.target, Target::Bool);
         assert_eq!(field_def.bits, BitRange(3..4));
     }
 
@@ -439,6 +476,7 @@ mod tests {
             Target::Int(RawDef::U128),
             syn::parse2::<Target>(quote! {u128}).unwrap(),
         );
+        assert_eq!(Target::Bool, syn::parse2::<Target>(quote! {bool}).unwrap(),);
     }
 
     #[test]
