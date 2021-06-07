@@ -4,52 +4,72 @@ use bitstruct::bitstruct;
 fn basic() {
     bitstruct! {
         struct MyReg(pub u32) {
-            field1: u8 = 0 .. 4;
-            field2: u8 = 4 .. 8;
-            field3: u16 = 8 .. 24;
-            field4: u8 = 24 .. 32;
+            field1: u8 = 0 .. 3;
+            field2: bool = 3;
+            field3: u8 = 4 .. 8;
+            field4: u16 = 8 .. 24;
+            field5: u8 = 24 .. 32;
         }
     }
     let x = MyReg(0)
         .with_field1(7)
-        .with_field2(9)
-        .with_field3(106)
-        .with_field4(253);
+        .with_field2(true)
+        .with_field3(9)
+        .with_field4(106)
+        .with_field5(253);
     assert_eq!(x.field1(), 7);
-    assert_eq!(x.field2(), 9);
-    assert_eq!(x.field3(), 106);
-    assert_eq!(x.field4(), 253);
+    assert_eq!(x.field2(), true);
+    assert_eq!(x.field3(), 9);
+    assert_eq!(x.field4(), 106);
+    assert_eq!(x.field5(), 253);
 }
 
-proptest::proptest! {
-    #[test]
-    fn test_props(
-        f1 in 0u8 ..= 3,
-        f2 in 0u8 ..= 255,
-        f3 in 0u16 ..= 65535,
-        f4 in 0u8 ..= 63
-    ) {
-        bitstruct! {
-            struct MyReg(u32) {
-                field1: u8 = 0 .. 2;
-                field2: u8 = 2 .. 10;
-                field3: u16 = 10 .. 26;
-                field4: u8 = 26 .. 32;
-                all: u32 = 0 .. 32;
-            }
-        }
-        let bs = MyReg(0)
-            .with_field1(f1)
-            .with_field2(f2)
-            .with_field3(f3)
-            .with_field4(f4);
+mod proptests {
+    use super::*;
+    use proptest::prelude::*;
 
-        assert_eq!(bs.field1(), f1);
-        assert_eq!(bs.field2(), f2);
-        assert_eq!(bs.field3(), f3);
-        assert_eq!(bs.field4(), f4);
-        assert_eq!(bs.all(), bs.0);
-        assert_eq!(bs.0, f1 as u32 | ((f2 as u32) << 2) | ((f3 as u32) << 10) | ((f4 as u32) << 26));
+    proptest! {
+        #[test]
+        fn tests(
+            f1 in 0u8 ..= 3,
+            f2: bool,
+            f3 in 0u8 ..= 127,
+            f4: u16,
+            f5 in 0u8 ..= 63
+        ) {
+            bitstruct! {
+                struct MyReg(u32) {
+                    field1: u8 = 0 .. 2;
+                    field2: bool = 2;
+                    field3: u8 = 3 .. 10;
+                    field4: u16 = 10 .. 26;
+                    field5: u8 = 26 .. 32;
+                    all: u32 = 0 .. 32;
+                }
+            }
+            let bs = MyReg(0)
+                .with_field1(f1)
+                .with_field2(f2)
+                .with_field3(f3)
+                .with_field4(f4)
+                .with_field5(f5);
+
+            assert_eq!(bs.field1(), f1);
+            assert_eq!(bs.field2(), f2);
+            assert_eq!(bs.field3(), f3);
+            assert_eq!(bs.field4(), f4);
+            assert_eq!(bs.field5(), f5);
+            assert_eq!(bs.all(), bs.0);
+
+            let expected =
+                (f1 as u32)
+                | ((f2 as u32) << 2)
+                | ((f3 as u32) << 3)
+                | ((f4 as u32) << 10)
+                | ((f5 as u32) << 26);
+
+            assert_eq!(bs.0, expected);
+        }
     }
 }
 
