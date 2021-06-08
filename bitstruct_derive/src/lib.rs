@@ -211,10 +211,22 @@ impl Parse for BitStructInput {
         let within_parens;
         syn::parenthesized!(within_parens in input);
         let raw_vis = within_parens.parse()?;
-        let raw = within_parens.parse()?;
+        let raw: RawDef = within_parens.parse()?;
         let within_braces;
         syn::braced!(within_braces in input);
-        let fields = Punctuated::parse_terminated(&within_braces)?;
+        let fields: Punctuated<FieldDef, _> = Punctuated::parse_terminated(&within_braces)?;
+        for field in fields.iter() {
+            if field.bits.0.end > raw.bit_len() {
+                return Err(syn::Error::new(
+                    field.name.span(),
+                    format!(
+                        "field `{}` specifies a bitrange beyond `{}` range",
+                        field.name,
+                        raw.as_str()
+                    ),
+                ));
+            }
+        }
         Ok(BitStructInput {
             attrs,
             vis,

@@ -1,0 +1,5 @@
+error: field `field1` specifies a bitrange beyond `u32` range
+ --> $DIR/bits_larger_than_raw.rs:5:9
+  |
+5 |         field1: u64 = 0 .. 33;
+  |         ^^^^^^
