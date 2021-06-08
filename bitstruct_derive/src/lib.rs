@@ -84,19 +84,24 @@ fn expand_field_getter(input: &BitStructInput, field: &FieldDef) -> TokenStream 
     let mask_and_shift: syn::Expr = syn::parse_quote! {
         ((self.0 & #mask) >> #start_bit)
     };
-    let cast = from_raw(mask_and_shift, &field.target);
+    let cast = from_raw(mask_and_shift, input.raw, &field.target, &field.bits);
 
     let field_vis = &field.vis;
     let field_name = &field.name;
+    let maybe_const_fn = if let Target::Convert(_) = field.target {
+        quote! {fn}
+    } else {
+        quote! {const fn}
+    };
     quote! {
         #(#pass_thru_attrs)*
-        #field_vis const fn #field_name(&self) -> #target_ty {
+        #field_vis #maybe_const_fn #field_name(&self) -> #target_ty {
             #cast
         }
     }
 }
 
-fn from_raw(raw_expr: syn::Expr, target: &Target) -> syn::Expr {
+fn from_raw(raw_expr: syn::Expr, raw: RawDef, target: &Target, bitrange: &BitRange) -> syn::Expr {
     match target {
         Target::Int(raw_def) => {
             let target_ty = raw_def.as_type();
@@ -107,6 +112,15 @@ fn from_raw(raw_expr: syn::Expr, target: &Target) -> syn::Expr {
         Target::Bool => {
             syn::parse_quote! {
                 #raw_expr != 0
+            }
+        }
+        Target::Convert(ty) => {
+            let bitlen = bitrange.0.end - bitrange.0.start;
+            let smallest_target = Target::smallest_target(bitlen);
+            let smallest_target_expr = from_raw(raw_expr, raw, &smallest_target, bitrange);
+            let smallest_target_ty = smallest_target.as_type();
+            syn::parse_quote! {
+                <Self as ::bitstruct::FromRaw<#smallest_target_ty, #ty>>::from_raw(#smallest_target_expr)
             }
         }
     }
@@ -133,11 +147,21 @@ fn expand_field_setter(input: &BitStructInput, field: &FieldDef) -> TokenStream 
     let field_name = &field.name;
     let with_method = quote::format_ident!("with_{}", field_name);
     let set_method = quote::format_ident!("set_{}", field_name);
-    let cast = into_raw(syn::parse_quote! {value}, &field.target, input.raw);
+    let cast = into_raw(
+        syn::parse_quote! {value},
+        &field.target,
+        input.raw,
+        &field.bits,
+    );
+    let maybe_const_fn = if let Target::Convert(_) = field.target {
+        quote! {fn}
+    } else {
+        quote! {const fn}
+    };
     quote! {
         #[must_use]
         #(#pass_thru_attrs)*
-        #field_vis const fn #with_method(mut self, value: #target_ty) -> Self {
+        #field_vis #maybe_const_fn #with_method(mut self, value: #target_ty) -> Self {
             self.0 = (self.0 & #neg_mask) | ((#cast << #start_bit) & #mask);
             self
         }
@@ -149,13 +173,27 @@ fn expand_field_setter(input: &BitStructInput, field: &FieldDef) -> TokenStream 
     }
 }
 
-fn into_raw(target_expr: syn::Expr, target: &Target, raw: RawDef) -> syn::Expr {
-    let raw = raw.as_type();
+fn into_raw(
+    target_expr: syn::Expr,
+    target: &Target,
+    raw: RawDef,
+    bitrange: &BitRange,
+) -> syn::Expr {
     match target {
         Target::Int(_) | Target::Bool => {
+            let raw = raw.as_type();
             syn::parse_quote! {
                 (#target_expr as #raw)
             }
+        }
+        Target::Convert(ty) => {
+            let bitlen = bitrange.0.end - bitrange.0.start;
+            let smallest_target = Target::smallest_target(bitlen);
+            let smallest_target_ty = smallest_target.as_type();
+            let smallest_target_expr = syn::parse_quote! {
+                <Self as ::bitstruct::IntoRaw<#smallest_target_ty, #ty>>::into_raw(#target_expr)
+            };
+            into_raw(smallest_target_expr, &smallest_target, raw, bitrange)
         }
     }
 }
@@ -333,16 +371,32 @@ impl Parse for FieldDef {
 
 #[derive(Debug, Eq, PartialEq)]
 enum Target {
-    // Basic integer type: u8,u16,u32,u64,u128
+    /// Basic integer type: u8,u16,u32,u64,u128
     Int(RawDef),
+    /// bool
     Bool,
+    /// A type that will be converted to/from using bitstruct::{FromRaw, IntoRaw}
+    Convert(syn::Type),
 }
 
 impl Target {
+    fn smallest_target(bitlen: u8) -> Target {
+        match bitlen {
+            x if x == 1 => Target::Bool,
+            x if x <= 8 => Target::Int(RawDef::U8),
+            x if x <= 16 => Target::Int(RawDef::U16),
+            x if x <= 32 => Target::Int(RawDef::U32),
+            x if x <= 64 => Target::Int(RawDef::U64),
+            x if x <= 128 => Target::Int(RawDef::U128),
+            _ => unreachable!("invalid bitlen"),
+        }
+    }
+
     fn bit_len(&self) -> u8 {
         match self {
             Target::Int(raw) => raw.bit_len(),
             Target::Bool => 1,
+            Target::Convert(_) => u8::MAX,
         }
     }
 
@@ -350,6 +404,7 @@ impl Target {
         match self {
             Target::Int(raw) => raw.as_type(),
             Target::Bool => syn::parse_quote! {bool},
+            Target::Convert(ty) => ty.clone().into(),
         }
     }
 }
@@ -359,6 +414,7 @@ impl fmt::Display for Target {
         match self {
             Target::Int(rawdef) => write!(f, "{}", rawdef.as_str()),
             Target::Bool => write!(f, "bool"),
+            Target::Convert(ty) => write!(f, "{:?}", ty),
         }
     }
 }
@@ -373,6 +429,7 @@ impl Parse for Target {
             .try_parse::<RawDef>()
             .map(|raw_def| Target::Int(raw_def))
             .or_else(|_| input.try_parse::<kw::bool>().map(|_| Target::Bool))
+            .or_else(|_| input.try_parse::<syn::Type>().map(|ty| Target::Convert(ty)))
     }
 }
 
@@ -489,6 +546,14 @@ mod tests {
             syn::parse2::<Target>(quote! {u128}).unwrap(),
         );
         assert_eq!(Target::Bool, syn::parse2::<Target>(quote! {bool}).unwrap(),);
+        assert_eq!(
+            Target::Convert(syn::parse_quote! {MyEnum}),
+            syn::parse2::<Target>(quote! {MyEnum}).unwrap(),
+        );
+        assert_eq!(
+            Target::Convert(syn::parse_quote! {Vec<u32>}),
+            syn::parse2::<Target>(quote! {Vec<u32>}).unwrap(),
+        );
     }
 
     #[test]

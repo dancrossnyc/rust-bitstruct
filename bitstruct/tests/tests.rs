@@ -24,6 +24,52 @@ fn basic() {
     assert_eq!(x.field5(), 253);
 }
 
+#[test]
+fn convert() {
+    // Simple wrapper with a universal conversion between u8 and Self.
+    #[derive(Debug, Eq, PartialEq)]
+    struct WrappedU8(u8);
+
+    impl From<u8> for WrappedU8 {
+        fn from(x: u8) -> WrappedU8 {
+            WrappedU8(x)
+        }
+    }
+    impl From<WrappedU8> for u8 {
+        fn from(x: WrappedU8) -> u8 {
+            x.0
+        }
+    }
+
+    // Simple wrapper with a conversion specific to MyReg bitfield.
+    #[derive(Debug, Eq, PartialEq)]
+    struct WrappedU16(u16);
+
+    impl bitstruct::FromRaw<u16, WrappedU16> for MyReg {
+        fn from_raw(x: u16) -> WrappedU16 {
+            WrappedU16(x)
+        }
+    }
+    impl bitstruct::IntoRaw<u16, WrappedU16> for MyReg {
+        fn into_raw(x: WrappedU16) -> u16 {
+            x.0
+        }
+    }
+
+    bitstruct! {
+        struct MyReg(u32) {
+            field1: WrappedU8 = 4 .. 12;
+            field2: WrappedU16 = 12 .. 28;
+        }
+    }
+
+    let x = MyReg(0)
+        .with_field1(WrappedU8(42))
+        .with_field2(WrappedU16(1024));
+    assert_eq!(x.field1(), WrappedU8(42));
+    assert_eq!(x.field2(), WrappedU16(1024));
+}
+
 mod proptests {
     use super::*;
     use proptest::prelude::*;
