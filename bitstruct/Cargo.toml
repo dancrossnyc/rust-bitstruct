@@ -1,8 +1,10 @@
 [package]
 name = "bitstruct"
 version = "0.1.1"
-authors = ["Dan Cross <crossd@gmail.com>"]
+authors = ["Glenn Griffin <ggriffiniii@gmail.com>", "Dan Cross <crossd@gmail.com>"]
 edition = "2018"
+description = "Better Bitfields"
+license = "MIT"
 
 [dependencies]
 bitstruct_derive = { version = "0.1.0", path = "../bitstruct_derive" }

@@ -1,8 +1,10 @@
 [package]
 name = "bitstruct_derive"
 version = "0.1.0"
-authors = ["Dan Cross <crossd@gmail.com>"]
+authors = ["Glenn Griffin <ggriffiniii@gmail.com>", "Dan Cross <crossd@gmail.com>"]
 edition = "2018"
+description = "Better Bitfields"
+license = "MIT"
 
 [lib]
 proc-macro = true
