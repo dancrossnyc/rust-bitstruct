@@ -1,3 +1,5 @@
+#![no_std]
+
 pub use bitstruct_derive::bitstruct;
 
 pub trait FromRaw<Raw, Target> {
